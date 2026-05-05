@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oxímetro de Pulso - BLE Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* NAVIGATION */
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .navbar h1 {
+            color: #2196F3;
+            font-size: 24px;
+            margin: 0;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .nav-btn.active {
+            background: #2196F3;
+            color: white;
+        }
+
+        .nav-btn:not(.active) {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .nav-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* MAIN CONTENT */
+        .content {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        .content.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ===== CONEXIÓN BLE ===== */
+        .connection-section {
+            text-align: center;
+        }
+
+        .connection-status {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin: 20px 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .status-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: #4CAF50;
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+        }
+
+        .status-indicator.disconnected {
+            background: #F44336;
+            box-shadow: 0 0 20px rgba(244, 67, 54, 0.5);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
+
+        .device-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .device-card {
+            background: #f9f9f9;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .device-card:hover {
+            border-color: #2196F3;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+            transform: translateY(-3px);
+        }
+
+        .device-name {
+            font-weight: 600;
+            color: #2196F3;
+            margin-bottom: 5px;
+        }
+
+        .device-id {
+            font-size: 12px;
+            color: #999;
+            font-family: monospace;
+        }
+
+        /* ===== MEDICIONES ===== */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .metric-card.spo2 { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .metric-card.bpm { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .metric-card.rr { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        .metric-card.quality { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .metric-value {
+            font-size: 48px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .metric-unit {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .alarm {
+            background: #FF6B6B;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ===== GRÁFICO ===== */
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 30px 0;
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid #e0e0e0;
+        }
+
+        /* ===== PACIENTES ===== */
+        .patient-form {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+
+        .patient-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .patient-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .patient-card:hover {
+            border-color: #2196F3;
+            box-shadow: 0 8px 20px rgba(33, 150, 243, 0.2);
+            transform: translateY(-5px);
+        }
+
+        .patient-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2196F3;
+            margin-bottom: 10px;
+        }
+
+        .patient-info {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .patient-date {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+        }
+
+        /* ===== CALIBRACIÓN ===== */
+        .calibration-container {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .calibration-progress {
+            margin: 20px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            width: 0%;
+            transition: width 0.3s;
+            border-radius: 5px;
+        }
+
+        /* ===== BOTONES ===== */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin: 5px;
+        }
+
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1976D2;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+        }
+
+        .btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #388E3C;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+
+        .btn-danger {
+            background: #F44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #D32F2F;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* ===== MODALES ===== */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s;
+        }
+
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .close-btn {
+            font-size: 28px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            border: none;
+            background: none;
+            transition: color 0.3s;
+        }
+
+        .close-btn:hover {
+            color: #000;
+        }
+
+        /* ===== TABLA HISTORIAL ===== */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+        }
+
+        .history-table thead {
+            background: #f0f0f0;
+        }
+
+        .history-table th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .history-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #666;
+        }
+
+        .history-table tbody tr:hover {
+            background: #f9f9f9;
+        }
+
+        /* ===== RESPONSIVO ===== */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .navbar {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .navbar h1 {
+                font-size: 20px;
+            }
+
+            .nav-buttons {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .content {
+                padding: 15px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-value {
+                font-size: 36px;
+            }
+
+            .chart-container {
+                height: 300px;
+            }
+        }
+
+        /* ===== SEÑAL DE CALIDAD ===== */
+        .signal-quality {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .signal-bar {
+            flex: 1;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .signal-fill {
+            height: 100%;
+            background: #4CAF50;
+            width: 100%;
+            transition: width 0.3s;
+        }
+
+        .signal-text {
+            font-weight: 600;
+            min-width: 100px;
+        }
+
+        /* ===== LOADER ===== */
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2196F3;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .empty-state-text {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .empty-state-subtext {
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- NAVBAR -->
+        <div class="navbar">
+            <h1>🏥 Oxímetro de Pulso - BLE Monitor</h1>
+            <div class="nav-buttons">
+                <button class="nav-btn active" onclick="showTab('connection')">🔗 Conectar</button>
+                <button class="nav-btn" onclick="showTab('measurement')">📊 Mediciones</button>
+                <button class="nav-btn" onclick="showTab('patients')">👥 Pacientes</button>
+                <button class="nav-btn" onclick="showTab('calibration')">🔄 Calibración</button>
+                <button class="nav-btn" onclick="showTab('history')">📈 Historial</button>
+            </div>
+        </div>
+
+        <!-- CONTENT SECTIONS -->
+
+        <!-- CONEXIÓN BLE -->
+        <div id="connection" class="content active">
+            <h2>🔗 Conectar Dispositivo BLE</h2>
+            <div class="connection-section">
+                <div class="connection-status">
+                    <div id="statusIndicator" class="status-indicator disconnected"></div>
+                    <span id="statusText">Desconectado</span>
+                </div>
+
+                <button class="btn btn-primary" onclick="scanDevices()">
+                    <span id="scanText">🔍 Iniciar Escaneo</span>
+                </button>
+
+                <div id="deviceList" class="device-list"></div>
+            </div>
+        </div>
+
+        <!-- MEDICIONES -->
+        <div id="measurement" class="content">
+            <h2>📊 Mediciones en Tiempo Real</h2>
+            
+            <div class="metrics-grid">
+                <div class="metric-card spo2">
+                    <div class="metric-label">SpO₂</div>
+                    <div class="metric-value" id="spo2Value">--</div>
+                    <div class="metric-unit">Saturación de O₂ (%)</div>
+                    <div id="spo2Alarm" class="alarm" style="display: none;">⚠ ALARMA BAJA</div>
+                </div>
+
+                <div class="metric-card bpm">
+                    <div class="metric-label">❤ BPM</div>
+                    <div class="metric-value" id="bpmValue">--</div>
+                    <div class="metric-unit">Frecuencia Cardíaca</div>
+                </div>
+
+                <div class="metric-card rr">
+                    <div class="metric-label">🫁 FR</div>
+                    <div class="metric-value" id="rrValue">--</div>
+                    <div class="metric-unit">Respiraciones/min</div>
+                </div>
+
+                <div class="metric-card quality">
+                    <div class="metric-label">📶 Señal</div>
+                    <div class="metric-value" id="qualityValue">--</div>
+                    <div class="metric-unit">Calidad (%)</div>
+                </div>
+            </div>
+
+            <!-- Signal Quality -->
+            <div class="signal-quality">
+                <div class="signal-bar">
+                    <div id="signalFill" class="signal-fill"></div>
+                </div>
+                <div id="signalText" class="signal-text">Buena</div>
+            </div>
+
+            <!-- Gráfico -->
+            <div class="chart-container">
+                <canvas id="waveformChart"></canvas>
+            </div>
+
+            <button class="btn btn-success" onclick="saveMeasurement()">💾 Guardar Medición</button>
+        </div>
+
+        <!-- PACIENTES -->
+        <div id="patients" class="content">
+            <h2>👥 Gestión de Pacientes</h2>
+            
+            <div class="patient-form">
+                <h3>Nuevo Paciente</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                    <div class="form-group">
+                        <label>Nombre Completo *</label>
+                        <input type="text" id="patientName" placeholder="Ej: Juan Pérez">
+                    </div>
+                    <div class="form-group">
+                        <label>Edad *</label>
+                        <input type="number" id="patientAge" min="1" max="120" placeholder="Ej: 45">
+                    </div>
+                    <div class="form-group">
+                        <label>Sexo *</label>
+                        <select id="patientGender">
+                            <option value="M">Masculino</option>
+                            <option value="F">Femenino</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="addPatient()">✓ Agregar Paciente</button>
+            </div>
+
+            <h3>Pacientes Registrados</h3>
+            <div id="patientsList" class="patient-list"></div>
+        </div>
+
+        <!-- CALIBRACIÓN -->
+        <div id="calibration" class="content">
+            <h2>🔄 Calibración Automática</h2>
+            
+            <div class="calibration-container">
+                <p>La calibración automática ajustará los sensores basándose en 100 muestras (~10 segundos).</p>
+                <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                    ℹ️ Asegúrate de que el sensor esté en contacto correcto con el dedo para obtener resultados precisos.
+                </p>
+                
+                <div id="calibrationStatus" style="margin: 20px 0; display: none;">
+                    <div class="calibration-progress">
+                        <p id="calibrationText" style="margin-bottom: 10px;">Calibrando... 0%</p>
+                        <div class="progress-bar">
+                            <div id="calibrationFill" class="progress-fill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="calibrationBtn" class="btn btn-success" onclick="startCalibration()">
+                    🔄 Iniciar Calibración
+                </button>
+            </div>
+
+            <h3 style="margin-top: 30px;">Parámetros de Calibración</h3>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 12px;">
+                <div class="form-group">
+                    <label>Offset de SpO₂ (% ajuste)</label>
+                    <input type="number" id="spo2Offset" step="0.1" value="0">
+                </div>
+                <div class="form-group">
+                    <label>Sensibilidad del Pulso</label>
+                    <input type="number" id="pulseSensitivity" step="0.1" value="1.0" min="0.5" max="2.0">
+                </div>
+                <div class="form-group">
+                    <label>Umbral de Respiración</label>
+                    <input type="number" id="rrThreshold" step="1" value="50">
+                </div>
+                <button class="btn btn-primary" onclick="applyCalibration()">✓ Aplicar Cambios</button>
+            </div>
+        </div>
+
+        <!-- HISTORIAL -->
+        <div id="history" class="content">
+            <h2>📈 Historial de Mediciones</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <label>Seleccionar Paciente:</label>
+                <select id="patientSelect" style="padding: 10px; border-radius: 8px; border: 2px solid #e0e0e0; margin-top: 10px; width: 100%; max-width: 300px;">
+                    <option value="">-- Selecciona un paciente --</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button class="btn btn-success" onclick="exportJSON()">📥 Exportar JSON</button>
+                <button class="btn btn-success" onclick="exportCSV()">📥 Exportar CSV</button>
+                <button class="btn btn-success" onclick="exportPDF()">📥 Exportar PDF</button>
+            </div>
+
+            <div id="historyChart" class="chart-container" style="margin-bottom: 30px;">
+                <canvas id="trendChart"></canvas>
+            </div>
+
+            <table id="historyTable" class="history-table">
+                <thead>
+                    <tr>
+                        <th>Fecha/Hora</th>
+                        <th>SpO₂ (%)</th>
+                        <th>BPM</th>
+                        <th>FR</th>
+                        <th>Calidad (%)</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #999;">No hay datos disponibles</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- MODAL PARA VER DETALLES DEL PACIENTE -->
+    <div id="patientModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="patientModalTitle">Detalles del Paciente</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="patientModalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============== VARIABLES GLOBALES ==============
+        let bleDevice = null;
+        let isConnected = false;
+        let isBleSupported = true;
+        let currentPatientId = null;
+        let measurementData = {
+            spo2: [],
+            bpm: [],
+            rr: [],
+            quality: [],
+            timestamps: []
+        };
+        let waveformChart = null;
+        let trendChart = null;
+        let isCalibrating = false;
+        let calibrationSamples = [];
+
+        // ============== INICIALIZACIÓN ==============
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeApp();
+            loadPatientsSelect();
+        });
+
+        function initializeApp() {
+            // Verificar soporte BLE
+            if (!navigator.bluetooth) {
+                isBleSupported = false;
+                document.getElementById('connection').innerHTML += 
+                    '<div class="empty-state"><p style="color: #F44336; font-weight: bold;">⚠ Bluetooth no está soportado en este navegador</p><p style="font-size: 12px;">Usa Chrome, Edge o Firefox en una computadora con Bluetooth.</p></div>';
+            }
+
+            // Inicializar gráficos
+            initWaveformChart();
+            initTrendChart();
+            loadPatientsFromStorage();
+        }
+
+        // ============== NAVEGACIÓN ==============
+        function showTab(tabName) {
+            // Hide all content
+            document.querySelectorAll('.content').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            // Remove active from buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // ============== BLUETOOTH ==============
+        async function scanDevices() {
+            if (!isBleSupported) {
+                alert('Bluetooth no está soportado en este navegador');
+                return;
+            }
+
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'ESP32_Oximeter' }],
+                    optionalServices: ['12345678-1234-5678-1234-56789abcdef0']
+                });
+
+                await connectDevice(device);
+            } catch (error) {
+                if (error.name !== 'NotFoundError') {
+                    console.error('Error en escaneo:', error);
+                }
+            }
+        }
+
+        async function connectDevice(device) {
+            try {
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('12345678-1234-5678-1234-56789abcdef0');
+
+                // Suscribirse a características
+                const spo2Char = await service.getCharacteristic('12345678-1234-5678-1234-56789abcdef1');
+                const bpmChar = await service.getCharacteristic('12345678-1234-5678-1234-56789abcdef2');
+                const rrChar = await service.getCharacteristic('12345678-1234-5678-1234-56789abcdef3');
+                const waveformChar = await service.getCharacteristic('12345678-1234-5678-1234-56789abcdef4');
+                const qualityChar = await service.getCharacteristic('12345678-1234-5678-1234-56789abcdef6');
+
+                await spo2Char.startNotifications();
+                await bpmChar.startNotifications();
+                await rrChar.startNotifications();
+                await waveformChar.startNotifications();
+                await qualityChar.startNotifications();
+
+                spo2Char.addEventListener('characteristicvaluechanged', handleSpO2Change);
+                bpmChar.addEventListener('characteristicvaluechanged', handleBPMChange);
+                rrChar.addEventListener('characteristicvaluechanged', handleRRChange);
+                waveformChar.addEventListener('characteristicvaluechanged', handleWaveformChange);
+                qualityChar.addEventListener('characteristicvaluechanged', handleQualityChange);
+
+                bleDevice = device;
+                isConnected = true;
+                updateConnectionStatus();
+
+                showTab('measurement');
+            } catch (error) {
+                console.error('Error de conexión:', error);
+                alert('Error conectando al dispositivo: ' + error.message);
+            }
+        }
+
+        function updateConnectionStatus() {
+            const indicator = document.getElementById('statusIndicator');
+            const text = document.getElementById('statusText');
+
+            if (isConnected) {
+                indicator.classList.remove('disconnected');
+                indicator.classList.add('connected');
+                text.textContent = '✓ Conectado: ' + (bleDevice?.name || 'ESP32 Oximeter');
+            } else {
+                indicator.classList.remove('connected');
+                indicator.classList.add('disconnected');
+                text.textContent = '✗ Desconectado';
+            }
+        }
+
+        // ============== MANEJADORES DE DATOS BLE ==============
+        function handleSpO2Change(event) {
+            const value = event.target.value.getUint8(0);
+            const spo2 = parseInt(new TextDecoder().decode(event.target.value)) || value;
+            document.getElementById('spo2Value').textContent = spo2.toFixed(1);
+
+            // Alarma
+            if (spo2 < 90) {
+                document.getElementById('spo2Alarm').style.display = 'block';
+            } else {
+                document.getElementById('spo2Alarm').style.display = 'none';
+            }
+
+            measurementData.spo2.push(spo2);
+            if (measurementData.spo2.length > 60) measurementData.spo2.shift();
+
+            if (isCalibrating) calibrationSamples.push(spo2);
+            updateCharts();
+        }
+
+        function handleBPMChange(event) {
+            const bpm = parseInt(new TextDecoder().decode(event.target.value)) || 0;
+            document.getElementById('bpmValue').textContent = bpm.toFixed(0);
+            measurementData.bpm.push(bpm);
+            if (measurementData.bpm.length > 60) measurementData.bpm.shift();
+            updateCharts();
+        }
+
+        function handleRRChange(event) {
+            const rr = parseInt(new TextDecoder().decode(event.target.value)) || 0;
+            document.getElementById('rrValue').textContent = rr.toFixed(0);
+            measurementData.rr.push(rr);
+            if (measurementData.rr.length > 60) measurementData.rr.shift();
+            updateCharts();
+        }
+
+        function handleWaveformChange(event) {
+            // Waveform data processing
+            const data = event.target.value;
+            if (data.byteLength >= 4) {
+                const waveValue = data.getUint32(0, true);
+                if (!measurementData.timestamps) {
+                    measurementData.timestamps = [];
+                }
+                measurementData.timestamps.push(new Date().toLocaleTimeString());
+                if (measurementData.timestamps.length > 60) {
+                    measurementData.timestamps.shift();
+                }
+            }
+        }
+
+        function handleQualityChange(event) {
+            const quality = parseInt(new TextDecoder().decode(event.target.value)) || 100;
+            document.getElementById('qualityValue').textContent = quality.toFixed(0);
+
+            const qualityFill = document.getElementById('signalFill');
+            qualityFill.style.width = quality + '%';
+
+            let qualityText = 'Buena';
+            let qualityColor = '#4CAF50';
+            if (quality < 50) {
+                qualityText = 'Mala';
+                qualityColor = '#F44336';
+            } else if (quality < 80) {
+                qualityText = 'Regular';
+                qualityColor = '#FF9800';
+            }
+
+            document.getElementById('signalText').textContent = qualityText;
+            document.getElementById('signalFill').style.backgroundColor = qualityColor;
+
+            measurementData.quality.push(quality);
+            if (measurementData.quality.length > 60) measurementData.quality.shift();
+        }
+
+        // ============== GRÁFICOS ==============
+        function initWaveformChart() {
+            const ctx = document.getElementById('waveformChart').getContext('2d');
+            waveformChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Forma de Onda',
+                        data: [],
+                        borderColor: '#FF6B6B',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            min: 0
+                        }
+                    }
+                }
+            });
+        }
+
+        function initTrendChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'SpO₂ (%)',
+                            data: [],
+                            borderColor: '#FF6B6B',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            borderWidth: 2
+                        },
+                        {
+                            label: 'BPM',
+                            data: [],
+                            borderColor: '#4ECDC4',
+                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true }
+                    }
+                }
+            });
+        }
+
+        function updateCharts() {
+            if (!waveformChart) return;
+
+            // Update waveform chart
+            waveformChart.data.labels = measurementData.timestamps || [];
+            waveformChart.data.datasets[0].data = measurementData.spo2;
+            waveformChart.update();
+        }
+
+        function updateTrendChart() {
+            if (!trendChart) return;
+
+            const historyData = JSON.parse(localStorage.getItem('measurements') || '[]');
+            if (currentPatientId) {
+                const patientData = historyData.filter(m => m.patientId === currentPatientId).slice(-100);
+
+                trendChart.data.labels = patientData.map(m => new Date(m.timestamp).toLocaleTimeString());
+                trendChart.data.datasets[0].data = patientData.map(m => m.spo2);
+                trendChart.data.datasets[1].data = patientData.map(m => m.bpm);
+                trendChart.update();
+            }
+        }
+
+        // ============== PACIENTES ==============
+        function addPatient() {
+            const name = document.getElementById('patientName').value;
+            const age = document.getElementById('patientAge').value;
+            const gender = document.getElementById('patientGender').value;
+
+            if (!name || !age) {
+                alert('Por favor completa todos los campos');
+                return;
+            }
+
+            const patient = {
+                id: Date.now().toString(),
+                name,
+                age: parseInt(age),
+                gender,
+                createdAt: new Date().toISOString()
+            };
+
+            const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+            patients.push(patient);
+            localStorage.setItem('patients', JSON.stringify(patients));
+
+            document.getElementById('patientName').value = '';
+            document.getElementById('patientAge').value = '';
+
+            alert('✓ Paciente agregado correctamente');
+            loadPatientsFromStorage();
+            loadPatientsSelect();
+        }
+
+        function loadPatientsFromStorage() {
+            const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+            const patientsList = document.getElementById('patientsList');
+
+            if (patients.length === 0) {
+                patientsList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <div class="empty-state-text">No hay pacientes registrados</div>
+                        <div class="empty-state-subtext">Crea uno nuevo para comenzar</div>
+                    </div>
+                `;
+                return;
+            }
+
+            patientsList.innerHTML = patients.map(patient => `
+                <div class="patient-card" onclick="selectPatient('${patient.id}')">
+                    <div class="patient-name">${patient.name}</div>
+                    <div class="patient-info">Edad: ${patient.age} años | Sexo: ${patient.gender === 'M' ? 'Masculino' : 'Femenino'}</div>
+                    <div class="patient-date">Creado: ${new Date(patient.createdAt).toLocaleDateString()}</div>
+                </div>
+            `).join('');
+        }
+
+        function loadPatientsSelect() {
+            const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+            const select = document.getElementById('patientSelect');
+
+            select.innerHTML = '<option value="">-- Selecciona un paciente --</option>' +
+                patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+            select.addEventListener('change', (e) => {
+                currentPatientId = e.target.value;
+                if (currentPatientId) {
+                    loadMeasurementsForPatient();
+                    updateTrendChart();
+                }
+            });
+        }
+
+        function selectPatient(patientId) {
+            currentPatientId = patientId;
+            showPatientModal(patientId);
+        }
+
+        function showPatientModal(patientId) {
+            const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+            const patient = patients.find(p => p.id === patientId);
+
+            if (!patient) return;
+
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]')
+                .filter(m => m.patientId === patientId)
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 10);
+
+            document.getElementById('patientModalTitle').textContent = patient.name;
+            document.getElementById('patientModalBody').innerHTML = `
+                <div>
+                    <p><strong>Edad:</strong> ${patient.age} años</p>
+                    <p><strong>Sexo:</strong> ${patient.gender === 'M' ? 'Masculino' : 'Femenino'}</p>
+                    <p><strong>Registrado:</strong> ${new Date(patient.createdAt).toLocaleDateString()}</p>
+                    <h3 style="margin-top: 20px;">Últimas Mediciones:</h3>
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha/Hora</th>
+                                <th>SpO₂</th>
+                                <th>BPM</th>
+                                <th>FR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${measurements.map(m => `
+                                <tr>
+                                    <td>${new Date(m.timestamp).toLocaleString()}</td>
+                                    <td>${m.spo2.toFixed(1)}%</td>
+                                    <td>${m.bpm.toFixed(0)}</td>
+                                    <td>${m.rr.toFixed(0)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            document.getElementById('patientModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('patientModal').classList.remove('active');
+        }
+
+        // ============== MEDICIONES ==============
+        function saveMeasurement() {
+            if (!currentPatientId) {
+                alert('Por favor selecciona un paciente primero');
+                showTab('patients');
+                return;
+            }
+
+            const spo2 = parseFloat(document.getElementById('spo2Value').textContent);
+            const bpm = parseFloat(document.getElementById('bpmValue').textContent);
+            const rr = parseFloat(document.getElementById('rrValue').textContent);
+            const quality = parseFloat(document.getElementById('qualityValue').textContent);
+
+            if (isNaN(spo2) || isNaN(bpm)) {
+                alert('No hay datos para guardar. Conecta el dispositivo primero.');
+                return;
+            }
+
+            const measurement = {
+                id: Date.now().toString(),
+                patientId: currentPatientId,
+                spo2,
+                bpm,
+                rr,
+                quality,
+                timestamp: new Date().toISOString()
+            };
+
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]');
+            measurements.push(measurement);
+            localStorage.setItem('measurements', JSON.stringify(measurements));
+
+            alert('✓ Medición guardada correctamente');
+        }
+
+        function loadMeasurementsForPatient() {
+            if (!currentPatientId) return;
+
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]')
+                .filter(m => m.patientId === currentPatientId)
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            const tbody = document.getElementById('historyTableBody');
+
+            if (measurements.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No hay mediciones para este paciente</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = measurements.map(m => `
+                <tr>
+                    <td>${new Date(m.timestamp).toLocaleString()}</td>
+                    <td>${m.spo2.toFixed(1)}%</td>
+                    <td>${m.bpm.toFixed(0)}</td>
+                    <td>${m.rr.toFixed(0)}</td>
+                    <td>${m.quality.toFixed(0)}%</td>
+                </tr>
+            `).join('');
+
+            updateTrendChart();
+        }
+
+        // ============== CALIBRACIÓN ==============
+        async function startCalibration() {
+            if (!isConnected) {
+                alert('El dispositivo no está conectado');
+                return;
+            }
+
+            isCalibrating = true;
+            calibrationSamples = [];
+            document.getElementById('calibrationStatus').style.display = 'block';
+            document.getElementById('calibrationBtn').disabled = true;
+
+            const interval = setInterval(() => {
+                const progress = Math.min((calibrationSamples.length / 100) * 100, 100);
+                document.getElementById('calibrationText').textContent = `Calibrando... ${progress.toFixed(0)}%`;
+                document.getElementById('calibrationFill').style.width = progress + '%';
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    completeCalibration();
+                }
+            }, 100);
+        }
+
+        function completeCalibration() {
+            isCalibrating = false;
+
+            const avgSpo2 = calibrationSamples.reduce((a, b) => a + b, 0) / calibrationSamples.length;
+            const expectedSpo2 = 98.5; // Reference
+            const offset = expectedSpo2 - avgSpo2;
+
+            document.getElementById('spo2Offset').value = offset.toFixed(2);
+
+            alert(`✓ Calibración completada\n\nOffset calculado: ${offset.toFixed(2)}%\n\nPromedio medido: ${avgSpo2.toFixed(1)}%\nValor esperado: ${expectedSpo2}%`);
+
+            document.getElementById('calibrationBtn').disabled = false;
+            document.getElementById('calibrationStatus').style.display = 'none';
+        }
+
+        function applyCalibration() {
+            const offset = parseFloat(document.getElementById('spo2Offset').value) || 0;
+            const sensitivity = parseFloat(document.getElementById('pulseSensitivity').value) || 1.0;
+            const threshold = parseFloat(document.getElementById('rrThreshold').value) || 50;
+
+            const calibration = {
+                id: Date.now().toString(),
+                spo2Offset: offset,
+                pulseSensitivity: sensitivity,
+                rrThreshold: threshold,
+                timestamp: new Date().toISOString()
+            };
+
+            localStorage.setItem('lastCalibration', JSON.stringify(calibration));
+            alert('✓ Calibración aplicada correctamente');
+        }
+
+        // ============== EXPORTAR ==============
+        function exportJSON() {
+            if (!currentPatientId) {
+                alert('Selecciona un paciente para exportar');
+                return;
+            }
+
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]')
+                .filter(m => m.patientId === currentPatientId);
+
+            const dataStr = JSON.stringify(measurements, null, 2);
+            downloadFile(dataStr, 'mediciones.json', 'application/json');
+        }
+
+        function exportCSV() {
+            if (!currentPatientId) {
+                alert('Selecciona un paciente para exportar');
+                return;
+            }
+
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]')
+                .filter(m => m.patientId === currentPatientId);
+
+            let csv = 'Fecha/Hora,SpO2 (%),BPM,FR,Calidad (%)\n';
+            measurements.forEach(m => {
+                csv += `${new Date(m.timestamp).toLocaleString()},${m.spo2.toFixed(1)},${m.bpm.toFixed(0)},${m.rr.toFixed(0)},${m.quality.toFixed(0)}\n`;
+            });
+
+            downloadFile(csv, 'mediciones.csv', 'text/csv');
+        }
+
+        function exportPDF() {
+            if (!currentPatientId) {
+                alert('Selecciona un paciente para exportar');
+                return;
+            }
+
+            const patients = JSON.parse(localStorage.getItem('patients') || '[]');
+            const patient = patients.find(p => p.id === currentPatientId);
+            const measurements = JSON.parse(localStorage.getItem('measurements') || '[]')
+                .filter(m => m.patientId === currentPatientId);
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Header
+            doc.setFontSize(16);
+            doc.text('Reporte de Mediciones', 20, 20);
+            doc.setFontSize(12);
+            doc.text(`Paciente: ${patient.name}`, 20, 30);
+            doc.text(`Edad: ${patient.age} años | Sexo: ${patient.gender === 'M' ? 'M' : 'F'}`, 20, 40);
+            doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 20, 50);
+
+            // Table
+            let y = 60;
+            doc.setFontSize(10);
+            doc.text('Fecha/Hora', 20, y);
+            doc.text('SpO₂ (%)', 70, y);
+            doc.text('BPM', 110, y);
+            doc.text('FR', 140, y);
+            doc.text('Calidad (%)', 160, y);
+
+            y += 10;
+            measurements.slice(0, 20).forEach(m => {
+                doc.text(new Date(m.timestamp).toLocaleString(), 20, y);
+                doc.text(m.spo2.toFixed(1), 70, y);
+                doc.text(m.bpm.toFixed(0), 110, y);
+                doc.text(m.rr.toFixed(0), 140, y);
+                doc.text(m.quality.toFixed(0), 160, y);
+                y += 7;
+            });
+
+            doc.save('mediciones.pdf');
+        }
+
+        function downloadFile(content, filename, type) {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
